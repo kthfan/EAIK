@@ -2,6 +2,9 @@
 #include <vector>
 #include <iostream>
 #include <math.h>
+#include <cmath>
+#include <algorithm>
+#include <utility>
 
 #include "kinematic_remodeling.h"
 
@@ -131,6 +134,95 @@ namespace EAIK
         }
 
         return P_new;
+    }
+
+    namespace
+    {
+        // Point on line (oj, hj) closest to line (ok, hk); lines must not be parallel
+        Eigen::Vector3d closest_point_on_first(const Eigen::Vector3d& oj, const Eigen::Vector3d& hj, const Eigen::Vector3d& ok, const Eigen::Vector3d& hk)
+        {
+            const Eigen::Vector3d w = oj - ok;
+            const double a = hj.dot(hj), b = hj.dot(hk), c = hk.dot(hk), d = hj.dot(w), e = hk.dot(w);
+            const double s = (b*e - c*d) / (a*c - b*b);
+            return oj + s*hj;
+        }
+
+        // Axis k passes through the sum of P.col(0..k)
+        Eigen::Vector3d axis_point(const Eigen::MatrixXd& P, unsigned k)
+        {
+            Eigen::Vector3d o = Eigen::Vector3d::Zero();
+            for(unsigned m = 0; m <= k; ++m) o += P.col(m);
+            return o;
+        }
+
+        // Below this |h_i x h_j| two axes count as parallel for the intersection steps
+        constexpr double PARALLEL_FOR_INTERSECTION = 1e-6;
+    }
+
+    std::pair<Eigen::MatrixXd, Eigen::MatrixXd> idealize_kinematics(const Eigen::MatrixXd &H_in, const Eigen::MatrixXd &P_in, const double parallel_tol, const double intersect_tol)
+    {
+        Eigen::MatrixXd H = H_in;
+        Eigen::MatrixXd P = P_in;
+        const unsigned n = H.cols();
+        for(unsigned k = 0; k < n; ++k) H.col(k).normalize();
+
+        // 1) Groups of consecutive (anti-)parallel axes share one exact direction
+        if(parallel_tol > 0)
+        {
+            const double sin_tol = std::sin(std::min(parallel_tol, 1.5707963267948966));
+            unsigned i = 0;
+            while(i < n)
+            {
+                unsigned j = i;
+                while(j + 1 < n && Eigen::Vector3d(H.col(i)).cross(Eigen::Vector3d(H.col(j+1))).norm() < sin_tol) ++j;
+                if(j > i)
+                {
+                    Eigen::Vector3d m = Eigen::Vector3d::Zero();
+                    for(unsigned k = i; k <= j; ++k) m += (H.col(k).dot(H.col(i)) >= 0 ? 1.0 : -1.0) * H.col(k);
+                    m.normalize();
+                    for(unsigned k = i; k <= j; ++k)
+                    {
+                        const double s = H.col(k).dot(H.col(i)) >= 0 ? 1.0 : -1.0;
+                        H.col(k) = s*m;
+                    }
+                }
+                i = j + 1;
+            }
+        }
+
+        if(intersect_tol > 0 && n >= 2)
+        {
+            // 2) Consecutive non-parallel axes with a small common-normal distance intersect exactly
+            //    (shift the offset between them along the common normal; downstream axes move along)
+            std::vector<bool> intersects(n, false);  // intersects[i]: axis i meets axis i+1
+            for(unsigned i = 0; i + 1 < n; ++i)
+            {
+                const Eigen::Vector3d c = Eigen::Vector3d(H.col(i)).cross(Eigen::Vector3d(H.col(i+1)));
+                if(c.norm() < PARALLEL_FOR_INTERSECTION) continue;
+                const Eigen::Vector3d nc = c.normalized();
+                const double d = nc.dot(P.col(i+1));
+                if(std::fabs(d) < intersect_tol)
+                {
+                    P.col(i+1) -= d*nc;
+                    intersects.at(i) = true;
+                }
+            }
+
+            // 3) Axes i, i+1, i+2 pairwise intersecting at two nearby points on axis i+1:
+            //    move axis i+2 along axis i+1 so that all three meet in one point
+            for(unsigned i = 0; i + 2 < n; ++i)
+            {
+                if(!intersects.at(i) || !intersects.at(i+1)) continue;
+                const Eigen::Vector3d A = closest_point_on_first(axis_point(P, i+1), H.col(i+1), axis_point(P, i), H.col(i));
+                const Eigen::Vector3d B = closest_point_on_first(axis_point(P, i+1), H.col(i+1), axis_point(P, i+2), H.col(i+2));
+                const Eigen::Vector3d delta = B - A;  // parallel to H.col(i+1)
+                if(delta.norm() < intersect_tol)
+                {
+                    P.col(i+2) -= delta;
+                }
+            }
+        }
+        return {H, P};
     }
 
     std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::Matrix<double, 3, 3>> partial_joint_parametrization(const Eigen::MatrixXd &H, const Eigen::MatrixXd &P, std::vector<std::pair<int, double>> fixed_axes, const Eigen::Matrix<double, 3, 3>& R6T)

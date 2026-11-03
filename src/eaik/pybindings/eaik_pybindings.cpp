@@ -18,6 +18,8 @@ PYBIND11_MODULE(EAIK, m)
         .def(py::init<>())
         .def_readwrite("Q", &IKS::IK_Eigen_Solution::Q)
         .def_readwrite("is_LS", &IKS::IK_Eigen_Solution::is_LS_vec)
+        .def_readwrite("pos_error", &IKS::IK_Eigen_Solution::pos_error_vec, "Position error of fwdkin(Q) w.r.t. the target pose on the original model [m]")
+        .def_readwrite("rot_error", &IKS::IK_Eigen_Solution::rot_error_vec, "Rotation error angle of fwdkin(Q) w.r.t. the target pose on the original model [rad]")
         .def("num_solutions", &IKS::IK_Eigen_Solution::num_solutions, R"pbdoc(
             Returns number of total IK solutions (including Least-Squares)
             :return:   int
@@ -27,7 +29,7 @@ PYBIND11_MODULE(EAIK, m)
         });
 
     py::class_<EAIK::Robot>(m, "Robot")
-        .def(py::init<const Eigen::MatrixXd &, const Eigen::MatrixXd &, const Eigen::Matrix<double, 3, 3> &, const std::vector<std::pair<int, double>>&, bool>(), R"pbdoc(
+        .def(py::init<const Eigen::MatrixXd &, const Eigen::MatrixXd &, const Eigen::Matrix<double, 3, 3> &, const std::vector<std::pair<int, double>>&, bool, double, double, double, double>(), R"pbdoc(
             The EAIK Robot class.
 
             :param H:  Unit vectors defining the joint axes
@@ -35,9 +37,14 @@ PYBIND11_MODULE(EAIK, m)
             :param R6T:  Endeffector orientation w.r.t. joint 6
             :param fixed_axes:  List of tuples defining fixed joints (zero-indexed) (i, q_i+1)    
             :param use_double_precision:  Use double precision (standard)
+            :param parallel_tol:  Idealization: consecutive axes within this angle [rad] are made exactly parallel (0 = off)
+            :param intersect_tol:  Idealization: consecutive axes within this distance [m] are made to intersect exactly (0 = off)
+            :param ls_pos_tol:  6R solutions missing the target position by more than this [m] are flagged is_LS
+            :param ls_rot_tol:  6R solutions missing the target rotation by more than this [rad] are flagged is_LS
         )pbdoc",
-        py::arg("H"), py::arg("P"), py::arg("R6T"), py::arg("fixed_axes"), py::arg("use_double_precision"))
-        .def(py::init<const Eigen::VectorXd&, const Eigen::VectorXd&, const Eigen::VectorXd&, const Eigen::Matrix<double, 3, 3> &, const std::vector<std::pair<int, double>>&, bool>(), R"pbdoc(
+        py::arg("H"), py::arg("P"), py::arg("R6T"), py::arg("fixed_axes"), py::arg("use_double_precision"),
+        py::arg("parallel_tol") = 0.0, py::arg("intersect_tol") = 0.0, py::arg("ls_pos_tol") = 1e-8, py::arg("ls_rot_tol") = 1e-8)
+        .def(py::init<const Eigen::VectorXd&, const Eigen::VectorXd&, const Eigen::VectorXd&, const Eigen::Matrix<double, 3, 3> &, const std::vector<std::pair<int, double>>&, bool, double, double, double, double>(), R"pbdoc(
             The EAIK Robot class.
 
             :param dh_alpha:  DH-Parameters: alpha
@@ -46,8 +53,13 @@ PYBIND11_MODULE(EAIK, m)
             :param R6T:  Endeffector orientation w.r.t. joint 6
             :param fixed_axes:  List of tuples defining fixed joints (zero-indexed) (i, q_i+1)    
             :param use_double_precision:  Use double precision (standard)
+            :param parallel_tol:  Idealization: consecutive axes within this angle [rad] are made exactly parallel (0 = off)
+            :param intersect_tol:  Idealization: consecutive axes within this distance [m] are made to intersect exactly (0 = off)
+            :param ls_pos_tol:  6R solutions missing the target position by more than this [m] are flagged is_LS
+            :param ls_rot_tol:  6R solutions missing the target rotation by more than this [rad] are flagged is_LS
         )pbdoc",
-        py::arg("dh_alpha"), py::arg("dh_a"), py::arg("dh_d"), py::arg("R6T"), py::arg("fixed_axes"), py::arg("use_double_precision"))
+        py::arg("dh_alpha"), py::arg("dh_a"), py::arg("dh_d"), py::arg("R6T"), py::arg("fixed_axes"), py::arg("use_double_precision"),
+        py::arg("parallel_tol") = 0.0, py::arg("intersect_tol") = 0.0, py::arg("ls_pos_tol") = 1e-8, py::arg("ls_rot_tol") = 1e-8)
         .def("calculate_IK", &EAIK::Robot::calculate_Eigen_IK, R"pbdoc(
             Run inverse kinematics.
 
@@ -82,5 +94,8 @@ PYBIND11_MODULE(EAIK, m)
         .def("get_remodeled_P", &EAIK::Robot::get_remodeled_P)
         .def("get_original_H", &EAIK::Robot::get_original_H)
         .def("get_original_P", &EAIK::Robot::get_original_P)
+        .def("get_idealized_H", &EAIK::Robot::get_idealized_H)
+        .def("get_idealized_P", &EAIK::Robot::get_idealized_P)
+        .def("get_R6T", &EAIK::Robot::get_R6T)
         .def("get_kinematic_family", &EAIK::Robot::get_kinematic_family);
 }

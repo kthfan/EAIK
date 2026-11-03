@@ -53,12 +53,30 @@ class IKRobot(ABC):
         """Returns the original joint axes' reference points for this robot before kinematic remodeling"""
         return self._robot.get_original_P()
 
+    def getIdealized_H(self) -> np.ndarray:
+        """Returns the joint axes the analytical solver uses (after fixed-axis reduction and idealization)"""
+        return self._robot.get_idealized_H()
+
+    def getIdealized_P(self) -> np.ndarray:
+        """Returns the joint offsets the analytical solver uses (after fixed-axis reduction and idealization)"""
+        return self._robot.get_idealized_P()
+
+    def getR6T(self) -> np.ndarray:
+        """Returns the end-effector orientation w.r.t. the last joint frame (at zero configuration, base frame)"""
+        return self._robot.get_R6T()
+
     def fwdKin(self, q: np.array) -> np.ndarray:
         """Calculate the forward kinematics for a given joint configuration"""
         return self._robot.fwdkin(q)
 
     def IK(self, pose: np.ndarray):
-        """Calculate the inverse kinematics for a desired pose"""
+        """
+        Calculate the inverse kinematics for a desired pose.
+
+        The returned solution holds Q, is_LS, and per solution pos_error [m] / rot_error [rad]
+        of fwdKin(Q) w.r.t. the pose on the original (non-idealized) model. For 6R robots,
+        is_LS is True iff these exceed the robot's ls_pos_tol / ls_rot_tol.
+        """
         return self._robot.calculate_IK(pose)
 
     def IK_batched(self, pose_batch, num_worker_threads=4):

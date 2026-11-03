@@ -10,7 +10,11 @@ class HomogeneousRobot(IKRobot):
     def __init__(self,
                  joint_trafos: np.ndarray,
                  fixed_axes: list[tuple[int, float]] = None,
-                 joint_axis: np.array = np.array([0, 0, 1])):
+                 joint_axis: np.array = np.array([0, 0, 1]),
+                 parallel_tol: float = 0.0,
+                 intersect_tol: float = 0.0,
+                 ls_pos_tol: float = 1e-8,
+                 ls_rot_tol: float = 1e-8):
         """
         EAIK Robot parametrized by homogeneous joint transformations
 
@@ -18,6 +22,12 @@ class HomogeneousRobot(IKRobot):
             frame, i.e. (T01, T02, ..., T0EE)
         :param fixed_axes: List of tuples defining fixed joints (zero-indexed) (i, q_i+1)
         :param joint_axis: Unit vector of joint axis orientation within each frame in joint_trafos (e.g., z-axis)
+        :param parallel_tol: Idealization [rad]: consecutive joint axes closer than this to parallel are
+            treated as exactly parallel by the analytical solver (0 = off)
+        :param intersect_tol: Idealization [m]: consecutive joint axes closer than this to intersecting are
+            treated as exactly intersecting by the analytical solver (0 = off)
+        :param ls_pos_tol: 6R solutions missing the target position by more than this [m] are flagged is_LS
+        :param ls_rot_tol: 6R solutions missing the target rotation by more than this [rad] are flagged is_LS
         """
         super().__init__()
         if fixed_axes is None:
@@ -39,4 +49,4 @@ class HomogeneousRobot(IKRobot):
         P = np.vstack([P, p_EE])
         rNt = joint_trafos[-1][:-1, :-1]  # Rotation in global basis frame
 
-        self._robot = EAIK.Robot(H.T, P.T, rNt, fixed_axes, True)
+        self._robot = EAIK.Robot(H.T, P.T, rNt, fixed_axes, True, parallel_tol, intersect_tol, ls_pos_tol, ls_rot_tol)

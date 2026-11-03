@@ -13,6 +13,8 @@ namespace IKS
     {
         std::vector<std::vector<double>> Q;
         std::vector<bool> is_LS_vec;
+        std::vector<double> pos_error_vec;  // |p_fk(Q) - p_target| on the original (non-idealized) model [m]
+        std::vector<double> rot_error_vec;  // rotation angle between R_fk(Q) and R_target [rad]
         unsigned num_solutions() const { return Q.size(); }
     };
 
@@ -20,6 +22,8 @@ namespace IKS
     {
         Eigen::MatrixXd Q;
         Eigen::Array<bool, Eigen::Dynamic, 1> is_LS_vec;
+        Eigen::VectorXd pos_error_vec;
+        Eigen::VectorXd rot_error_vec;
         unsigned num_solutions() const { return Q.rows(); }
     };
 

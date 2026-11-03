@@ -2,6 +2,8 @@
 #include <Eigen/Dense>
 #include <thread>
 #include <mutex>
+#include <cmath>
+#include <tuple>
 
 #include "kinematic_remodeling.h"
 #include "kinematic_utils.h"
@@ -9,14 +11,18 @@
 
 namespace EAIK
 {
-    Robot::Robot(const Eigen::VectorXd& dh_alpha, const Eigen::VectorXd& dh_a, const Eigen::VectorXd& dh_d, const Eigen::Matrix<double, 3, 3> &R6T, const std::vector<std::pair<int, double>>& fixed_axes, bool is_double_precision)
+    Robot::Robot(const Eigen::VectorXd& dh_alpha, const Eigen::VectorXd& dh_a, const Eigen::VectorXd& dh_d, const Eigen::Matrix<double, 3, 3> &R6T, const std::vector<std::pair<int, double>>& fixed_axes, bool is_double_precision,
+                 double parallel_tol, double intersect_tol, double ls_pos_tol, double ls_rot_tol)
+        : parallel_tol(parallel_tol), intersect_tol(intersect_tol), ls_pos_tol(ls_pos_tol), ls_rot_tol(ls_rot_tol)
     {
         const auto&[H, P, R6T_dh] = IKS::dh_to_H_P(dh_alpha, dh_a, dh_d);
         this->R6T = R6T*R6T_dh;
         init(H, P, fixed_axes, is_double_precision);
     }
 
-    Robot::Robot(const Eigen::MatrixXd &H, const Eigen::MatrixXd &P, const Eigen::Matrix<double, 3, 3> &R6T, const std::vector<std::pair<int, double>>& fixed_axes, bool is_double_precision) : R6T(R6T)
+    Robot::Robot(const Eigen::MatrixXd &H, const Eigen::MatrixXd &P, const Eigen::Matrix<double, 3, 3> &R6T, const std::vector<std::pair<int, double>>& fixed_axes, bool is_double_precision,
+                 double parallel_tol, double intersect_tol, double ls_pos_tol, double ls_rot_tol)
+        : parallel_tol(parallel_tol), intersect_tol(intersect_tol), ls_pos_tol(ls_pos_tol), ls_rot_tol(ls_rot_tol), R6T(R6T)
     {
         init(H, P, fixed_axes, is_double_precision);
     }
@@ -44,16 +50,17 @@ namespace EAIK
             std::sort(this->fixed_axes.begin(), this->fixed_axes.end(), [](const std::pair<int, double>& a, const std::pair<int, double>& b) {return a.first < b.first;});
 
             const auto&[H_part, P_part, R6T_part] = partial_joint_parametrization(H, P, fixed_axes, R6T);
-            P_remodeled = remodel_kinematics(H_part, P_part, ZERO_THRESHOLD, AXIS_INTERSECT_THRESHOLD);
-            H_remodeled = H_part;
+            std::tie(H_idealized, P_idealized) = idealize_kinematics(H_part, P_part, parallel_tol, intersect_tol);
             this->R6T_partial = R6T_part;
         }
         else
         {
-            P_remodeled = remodel_kinematics(H, P, ZERO_THRESHOLD, AXIS_INTERSECT_THRESHOLD);
-            H_remodeled = H;
+            std::tie(H_idealized, P_idealized) = idealize_kinematics(H, P, parallel_tol, intersect_tol);
             this->R6T_partial = R6T;
         }
+        P_remodeled = remodel_kinematics(H_idealized, P_idealized, ZERO_THRESHOLD, AXIS_INTERSECT_THRESHOLD);
+        H_remodeled = H_idealized;
+        solver_dof = H_remodeled.cols();
         switch (H_remodeled.cols())
         {
         case 6:
@@ -107,6 +114,45 @@ namespace EAIK
         return original_kinematics->get_P();
     }
 
+    Eigen::MatrixXd Robot::get_idealized_H() const
+    {
+        return H_idealized;
+    }
+
+    Eigen::MatrixXd Robot::get_idealized_P() const
+    {
+        return P_idealized;
+    }
+
+    Eigen::Matrix<double, 3, 3> Robot::get_R6T() const
+    {
+        return R6T;
+    }
+
+    void Robot::evaluate_solution(IKS::IK_Solution& solution, const IKS::Homogeneous_T& target) const
+    {
+        solution.is_LS_vec.resize(solution.Q.size(), true);
+        solution.pos_error_vec.resize(solution.Q.size());
+        solution.rot_error_vec.resize(solution.Q.size());
+        for(unsigned i = 0; i < solution.Q.size(); ++i)
+        {
+            const IKS::Homogeneous_T F = fwdkin(solution.Q.at(i));
+            const double dp = (F.block<3,1>(0,3) - target.block<3,1>(0,3)).norm();
+            const Eigen::Matrix3d R = target.block<3,3>(0,0).transpose() * F.block<3,3>(0,0);
+            const Eigen::Vector3d w(R(2,1)-R(1,2), R(0,2)-R(2,0), R(1,0)-R(0,1));
+            const double dr = std::atan2(0.5*w.norm(), 0.5*(R.trace()-1.0));  // accurate also for tiny angles
+            solution.pos_error_vec.at(i) = dp;
+            solution.rot_error_vec.at(i) = dr;
+
+            // Full-pose (6R) solutions: is_LS reflects whether the returned Q actually reaches the target.
+            // For <6R robots the full pose is generally not reachable, keep the subproblem flags.
+            if(solver_dof == 6)
+            {
+                solution.is_LS_vec.at(i) = dp > ls_pos_tol || dr > ls_rot_tol;
+            }
+        }
+    }
+
     std::string Robot::get_kinematic_family() const
     {
         return bot_kinematics->get_kinematic_family();
@@ -132,6 +178,7 @@ namespace EAIK
             }
         }
 
+        evaluate_solution(solution, ee_position_orientation);
         return solution;
     }    
     
@@ -189,6 +236,8 @@ namespace EAIK
         if(vector_solution.Q.size() > 0)
         {
             eigen_solution.is_LS_vec.resize(vector_solution.is_LS_vec.size());
+            eigen_solution.pos_error_vec = Eigen::VectorXd::Map(vector_solution.pos_error_vec.data(), vector_solution.pos_error_vec.size());
+            eigen_solution.rot_error_vec = Eigen::VectorXd::Map(vector_solution.rot_error_vec.data(), vector_solution.rot_error_vec.size());
 
             // TODO: Find a way to avoid slow loop in future releases
             for(unsigned i = 0; i < vector_solution.is_LS_vec.size(); ++i)

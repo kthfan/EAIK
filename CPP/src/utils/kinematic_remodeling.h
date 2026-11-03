@@ -14,6 +14,14 @@ namespace EAIK
     Eigen::Vector3d calc_intersection(const Eigen::Vector3d& hj, const Eigen::Vector3d& hk, const Eigen::Vector3d& p0j, const Eigen::Vector3d& pkj, const double ZERO_THRESHOLD);
     Eigen::MatrixXd remodel_kinematics(const Eigen::MatrixXd &H, const Eigen::MatrixXd &P, double ZERO_THRESHOLD, const double AXIS_INTERSECT_THRESHOLD);
 
+    // Snap near-degenerate geometric relations between consecutive joint axes to exact ones
+    // (near-parallel -> parallel, near-intersecting -> intersecting, three consecutive axes
+    // through nearly one point -> through exactly one point). A tolerance <= 0 disables that step.
+    // parallel_tol [rad]: max. angle between consecutive axes to be made parallel.
+    // intersect_tol [m]: max. common-normal distance (and max. shift along the middle axis for
+    //                    the three-axis case) to be made exactly zero.
+    std::pair<Eigen::MatrixXd, Eigen::MatrixXd> idealize_kinematics(const Eigen::MatrixXd &H, const Eigen::MatrixXd &P, const double parallel_tol, const double intersect_tol);
+
     // Create kinematic chain that implies series of fixed joint values
     std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::Matrix<double, 3, 3>> partial_joint_parametrization(const Eigen::MatrixXd &H, const Eigen::MatrixXd &P, std::vector<std::pair<int, double>> fixed_axes, const Eigen::Matrix<double, 3, 3>& R6T=Eigen::Matrix<double, 3, 3>::Identity());
 } // namespace EAIK
