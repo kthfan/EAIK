@@ -4,3 +4,6 @@ recursive-include CPP/external/ik-geo/cpp/ *
 recursive-include CPP/src/ *
 prune src/eaik/examples
 prune Images
+recursive-include CPP/external/eigen/Eigen *
+include ROBUST_CHANGES.md
+recursive-include CPP/external/eigen/unsupported/Eigen *
