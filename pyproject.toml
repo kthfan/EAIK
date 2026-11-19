@@ -38,21 +38,6 @@ skip = [
     "pp*"
 ]
 
-# Default for older Pythons
-manylinux-x86_64-image = "manylinux2014"
-manylinux-aarch64-image = "manylinux2014"
-
-[[tool.cibuildwheel.overrides]]
-select = "cp311-*"
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-aarch64-image = "manylinux_2_28"
-
-[[tool.cibuildwheel.overrides]]
-select = "cp312-*"
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-aarch64-image = "manylinux_2_28"
-
-[[tool.cibuildwheel.overrides]]
-select = "cp313-*"
+# Pillow (dependency of urchin) only ships wheels for glibc >= 2.28
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
