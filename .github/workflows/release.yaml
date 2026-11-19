@@ -10,7 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -71,24 +71,30 @@ jobs:
           path: dist/*.tar.gz
 
   publish:
+    name: Attach files to GitHub Release
     needs:
       - build_wheels
       - build_sdist
 
+    # Run even if some platforms failed, so the successful wheels are still attached
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
 
     permissions:
-      id-token: write
+      contents: write
 
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
 
-      - run: |
+      - name: Collect files
+        run: |
           mkdir upload
           find dist -type f \( -name "*.whl" -o -name "*.tar.gz" \) -exec cp {} upload/ \;
+          ls -l upload
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          packages-dir: upload
+          files: upload/*
